@@ -122,13 +122,25 @@ export async function runAttemptContextEngineBootstrap(params: {
   }) => Promise<unknown>;
   warn: (message: string) => void;
 }) {
-  if (
-    !params.hadSessionFile ||
-    !(params.contextEngine?.bootstrap || params.contextEngine?.maintain)
-  ) {
+  // Skip entirely if there's no context engine to drive.
+  if (!(params.contextEngine?.bootstrap || params.contextEngine?.maintain)) {
     return;
   }
   try {
+    // Always call contextEngine.bootstrap when present, regardless of
+    // whether the session file exists on disk yet. The plugin contract is
+    // that bootstrap receives the deterministic sessionFile PATH STRING and
+    // does not require the file to exist — both meta-packet-engine and
+    // openclaw-context only consume the path for agentId derivation
+    // (path-regex match against `/agents/<id>/sessions/`), they do not read
+    // file contents from bootstrap. Pre-fix this call was gated on
+    // hadSessionFile, which meant the FIRST turn of every brand-new session
+    // never invoked the plugin's bootstrap, leaving the plugin's session
+    // map unpopulated for that turn → meta-packet-engine logged
+    // `sessionFile=MISSING -> agentId=NULL` and pass-through'd the turn,
+    // sidelining ~80% of cron/work/diagnostic traffic from the A/B
+    // observation window. See investigation handoff
+    // workspace-main/handoffs/2026-04-15-gateway-sessionfile-undefined.md.
     if (typeof params.contextEngine?.bootstrap === "function") {
       await params.contextEngine.bootstrap({
         sessionId: params.sessionId,
@@ -136,15 +148,23 @@ export async function runAttemptContextEngineBootstrap(params: {
         sessionFile: params.sessionFile,
       });
     }
-    await params.runMaintenance({
-      contextEngine: params.contextEngine,
-      sessionId: params.sessionId,
-      sessionKey: params.sessionKey,
-      sessionFile: params.sessionFile,
-      reason: "bootstrap",
-      sessionManager: params.sessionManager,
-      runtimeContext: params.runtimeContext,
-    });
+    // runMaintenance({reason: "bootstrap"}) STAYS gated on hadSessionFile.
+    // Maintenance routines may legitimately need to read existing
+    // transcript content (repair, migration, replay seeding) and have no
+    // safe behavior when the file does not yet exist. Calling it on a
+    // brand-new session would be a behavior change beyond the scope of
+    // this fix.
+    if (params.hadSessionFile) {
+      await params.runMaintenance({
+        contextEngine: params.contextEngine,
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+        sessionFile: params.sessionFile,
+        reason: "bootstrap",
+        sessionManager: params.sessionManager,
+        runtimeContext: params.runtimeContext,
+      });
+    }
   } catch (bootstrapErr) {
     params.warn(`context engine bootstrap failed: ${String(bootstrapErr)}`);
   }

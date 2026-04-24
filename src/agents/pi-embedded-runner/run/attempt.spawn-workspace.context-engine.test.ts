@@ -138,6 +138,45 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     expectCalledWithSessionKey(afterTurn, sessionKey);
   });
 
+  it(
+    "calls contextEngine.bootstrap on first turn when sessionFile does not exist yet, " +
+      "while still skipping runMaintenance",
+    async () => {
+      // Regression test for the gateway-side `sessionFile=undefined` bug:
+      // pre-fix, brand-new sessions (whose session file had not yet been
+      // written to disk at the moment of the very first turn) had
+      // hadSessionFile=false and therefore skipped contextEngine.bootstrap
+      // entirely, leaving the plugin's per-session map unpopulated for that
+      // turn. The result was that meta-packet-engine logged
+      // `sessionFile=MISSING -> agentId=NULL` and pass-through'd the first
+      // turn of every brand-new session, sidelining the bulk of cron/work
+      // traffic from the A/B observation window. The fix calls bootstrap
+      // unconditionally (the plugin only consumes the path STRING, not the
+      // file contents), while runMaintenance stays gated on hadSessionFile
+      // because it may need to read existing transcript content.
+      const { bootstrap, assemble } = createContextEngineBootstrapAndAssemble();
+      const contextEngine = createTestContextEngine({ bootstrap, assemble });
+
+      await runBootstrap(sessionKey, contextEngine, { hadSessionFile: false });
+
+      // Bootstrap MUST be called even when the file does not yet exist on disk.
+      expect(bootstrap).toHaveBeenCalledTimes(1);
+      expectCalledWithSessionKey(bootstrap, sessionKey);
+      // The sessionFile path is still forwarded — the plugin needs the
+      // deterministic path string to derive agentId via path-regex.
+      expect(bootstrap).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: embeddedSessionId,
+          sessionFile,
+        }),
+      );
+
+      // runMaintenance MUST NOT be called when hadSessionFile=false.
+      // It is reserved for sessions whose file is already present on disk.
+      expect(hoisted.runContextEngineMaintenanceMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("forwards modelId to assemble", async () => {
     const { bootstrap, assemble } = createContextEngineBootstrapAndAssemble();
     const contextEngine = createTestContextEngine({ bootstrap, assemble });

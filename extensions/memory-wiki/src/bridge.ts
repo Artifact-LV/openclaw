@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import {
-  listActiveMemoryPublicArtifacts,
-  type MemoryPluginPublicArtifact,
-} from "openclaw/plugin-sdk/memory-host-core";
+import { type MemoryPluginPublicArtifact } from "openclaw/plugin-sdk/memory-host-core";
 import type { OpenClawConfig } from "../api.js";
+import { listMemoryWikiBridgePublicArtifacts } from "./bridge-public-artifacts.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { appendMemoryWikiLog } from "./log.js";
 import {
@@ -39,6 +37,7 @@ export type BridgeMemoryWikiResult = {
   artifactCount: number;
   workspaces: number;
   pagePaths: string[];
+  pruneSkippedReason?: "no-public-artifacts";
 };
 
 function shouldImportArtifact(
@@ -202,6 +201,7 @@ async function writeBridgeSourcePage(params: {
 export async function syncMemoryWikiBridgeSources(params: {
   config: ResolvedMemoryWikiConfig;
   appConfig?: OpenClawConfig;
+  forcePruneWhenNoArtifacts?: boolean;
 }): Promise<BridgeMemoryWikiResult> {
   await initializeMemoryWikiVault(params.config);
   if (
@@ -221,7 +221,19 @@ export async function syncMemoryWikiBridgeSources(params: {
     };
   }
 
-  const publicArtifacts = await listActiveMemoryPublicArtifacts({ cfg: params.appConfig });
+  const publicArtifacts = await listMemoryWikiBridgePublicArtifacts({ cfg: params.appConfig });
+  if (publicArtifacts.length === 0 && !params.forcePruneWhenNoArtifacts) {
+    return {
+      importedCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      removedCount: 0,
+      artifactCount: 0,
+      workspaces: 0,
+      pagePaths: [],
+      pruneSkippedReason: "no-public-artifacts",
+    };
+  }
   const state = await readMemoryWikiSourceSyncState(params.config.vault.path);
   const results: Array<{ pagePath: string; changed: boolean; created: boolean }> = [];
   let artifactCount = 0;

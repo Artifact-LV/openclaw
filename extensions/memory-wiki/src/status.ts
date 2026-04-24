@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { listActiveMemoryPublicArtifacts } from "openclaw/plugin-sdk/memory-host-core";
 import type { OpenClawConfig } from "../api.js";
+import { listMemoryWikiBridgePublicArtifacts } from "./bridge-public-artifacts.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { inferWikiPageKind, toWikiPageSummary, type WikiPageKind } from "./markdown.js";
 import { probeObsidianCli } from "./obsidian.js";
@@ -220,8 +221,9 @@ export async function resolveMemoryWikiStatus(
   const bridgePublicArtifactCount =
     deps?.appConfig && config.vaultMode === "bridge" && config.bridge.enabled
       ? (
-          await (deps.listPublicArtifacts ?? listActiveMemoryPublicArtifacts)({
+          await listMemoryWikiBridgePublicArtifacts({
             cfg: deps.appConfig,
+            listPublicArtifacts: deps.listPublicArtifacts,
           })
         ).length
       : null;

@@ -163,10 +163,10 @@ describe("syncMemoryWikiBridgeSources", () => {
     });
   });
 
-  it("returns a no-op result when bridge mode is enabled without exported memory artifacts", async () => {
-    const workspaceDir = await createBridgeWorkspace("no-memory-core");
-    const { config } = await createVault({
-      rootDir: nextCaseRoot("no-memory-core-vault"),
+  it("falls back to configured memory artifacts when the active plugin exports none", async () => {
+    const workspaceDir = await createBridgeWorkspace("fallback-memory-core");
+    const { rootDir: vaultDir, config } = await createVault({
+      rootDir: nextCaseRoot("fallback-memory-core-vault"),
       config: {
         vaultMode: "bridge",
         bridge: {
@@ -187,7 +187,56 @@ describe("syncMemoryWikiBridgeSources", () => {
 
     const result = await syncMemoryWikiBridgeSources({ config, appConfig });
 
-    expect(result).toMatchObject({
+    expect(result.workspaces).toBe(1);
+    expect(result.artifactCount).toBe(1);
+    expect(result.importedCount).toBe(1);
+    expect(result.updatedCount).toBe(0);
+    expect(result.skippedCount).toBe(0);
+    expect(result.removedCount).toBe(0);
+    expect(result.pagePaths).toHaveLength(1);
+    await expect(fs.stat(path.join(vaultDir, result.pagePaths[0] ?? ""))).resolves.toBeTruthy();
+  });
+
+  it("does not prune existing bridge pages when no public artifacts can be found", async () => {
+    const workspaceDir = await createBridgeWorkspace("zero-artifacts-prune-guard");
+    const { rootDir: vaultDir, config } = await createVault({
+      rootDir: nextCaseRoot("zero-artifacts-prune-guard-vault"),
+      config: {
+        vaultMode: "bridge",
+        bridge: {
+          enabled: true,
+          readMemoryArtifacts: true,
+          indexMemoryRoot: true,
+        },
+      },
+    });
+
+    await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "# Durable Memory\n", "utf8");
+    registerBridgeArtifacts([
+      {
+        kind: "memory-root",
+        workspaceDir,
+        relativePath: "MEMORY.md",
+        absolutePath: path.join(workspaceDir, "MEMORY.md"),
+        agentIds: ["main"],
+        contentType: "markdown",
+      },
+    ]);
+    const appConfig: OpenClawConfig = {
+      agents: {
+        list: [{ id: "main", default: true, workspace: workspaceDir }],
+      },
+    };
+
+    const first = await syncMemoryWikiBridgeSources({ config, appConfig });
+    const firstPagePath = first.pagePaths[0] ?? "";
+    await expect(fs.stat(path.join(vaultDir, firstPagePath))).resolves.toBeTruthy();
+
+    await fs.rm(path.join(workspaceDir, "MEMORY.md"));
+    registerBridgeArtifacts([]);
+    const second = await syncMemoryWikiBridgeSources({ config, appConfig });
+
+    expect(second).toMatchObject({
       importedCount: 0,
       updatedCount: 0,
       skippedCount: 0,
@@ -195,7 +244,9 @@ describe("syncMemoryWikiBridgeSources", () => {
       artifactCount: 0,
       workspaces: 0,
       pagePaths: [],
+      pruneSkippedReason: "no-public-artifacts",
     });
+    await expect(fs.stat(path.join(vaultDir, firstPagePath))).resolves.toBeTruthy();
   });
 
   it("imports the public memory event journal when followMemoryEvents is enabled", async () => {
@@ -261,20 +312,30 @@ describe("syncMemoryWikiBridgeSources", () => {
         bridge: {
           enabled: true,
           indexMemoryRoot: true,
-          indexDailyNotes: false,
+          indexDailyNotes: true,
           indexDreamReports: false,
           followMemoryEvents: false,
         },
       },
     });
 
+    await fs.mkdir(path.join(workspaceDir, "memory"), { recursive: true });
     await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "# Durable Memory\n", "utf8");
+    await fs.writeFile(path.join(workspaceDir, "memory", "keep.md"), "# Keep\n", "utf8");
     registerBridgeArtifacts([
       {
         kind: "memory-root",
         workspaceDir,
         relativePath: "MEMORY.md",
         absolutePath: path.join(workspaceDir, "MEMORY.md"),
+        agentIds: ["main"],
+        contentType: "markdown",
+      },
+      {
+        kind: "daily-note",
+        workspaceDir,
+        relativePath: "memory/keep.md",
+        absolutePath: path.join(workspaceDir, "memory", "keep.md"),
         agentIds: ["main"],
         contentType: "markdown",
       },
@@ -286,18 +347,40 @@ describe("syncMemoryWikiBridgeSources", () => {
     };
 
     const first = await syncMemoryWikiBridgeSources({ config, appConfig });
-    const firstPagePath = first.pagePaths[0] ?? "";
-    await expect(fs.stat(path.join(vaultDir, firstPagePath))).resolves.toBeTruthy();
+    expect(first.importedCount).toBe(2);
+    const renderedPages = await Promise.all(
+      first.pagePaths.map(async (pagePath) => ({
+        pagePath,
+        raw: await fs.readFile(path.join(vaultDir, pagePath), "utf8"),
+      })),
+    );
+    const memoryRootPagePath =
+      renderedPages.find((page) => page.raw.includes("Relative path: `MEMORY.md`"))?.pagePath ?? "";
+    const keptPagePath =
+      renderedPages.find((page) => page.raw.includes("Relative path: `memory/keep.md`"))
+        ?.pagePath ?? "";
+    await expect(fs.stat(path.join(vaultDir, memoryRootPagePath))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(vaultDir, keptPagePath))).resolves.toBeTruthy();
 
     await fs.rm(path.join(workspaceDir, "MEMORY.md"));
-    registerBridgeArtifacts([]);
+    registerBridgeArtifacts([
+      {
+        kind: "daily-note",
+        workspaceDir,
+        relativePath: "memory/keep.md",
+        absolutePath: path.join(workspaceDir, "memory", "keep.md"),
+        agentIds: ["main"],
+        contentType: "markdown",
+      },
+    ]);
     const second = await syncMemoryWikiBridgeSources({ config, appConfig });
 
-    expect(second.artifactCount).toBe(0);
+    expect(second.artifactCount).toBe(1);
     expect(second.removedCount).toBe(1);
-    await expect(fs.stat(path.join(vaultDir, firstPagePath))).rejects.toMatchObject({
+    await expect(fs.stat(path.join(vaultDir, memoryRootPagePath))).rejects.toMatchObject({
       code: "ENOENT",
     });
+    await expect(fs.stat(path.join(vaultDir, keptPagePath))).resolves.toBeTruthy();
   });
 
   it("caps composed bridge source filenames to the filesystem component limit", async () => {

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../api.js";
@@ -89,6 +90,41 @@ describe("resolveMemoryWikiStatus", () => {
 
     expect(status.bridgePublicArtifactCount).toBe(0);
     expect(status.warnings.map((warning) => warning.code)).toContain("bridge-artifacts-missing");
+  });
+
+  it("falls back to configured memory artifacts when reporting bridge status", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "memory-wiki-status-bridge-"));
+    try {
+      await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "# Durable Memory\n", "utf8");
+      const config = resolveMemoryWikiConfig(
+        {
+          vaultMode: "bridge",
+          bridge: {
+            enabled: true,
+            readMemoryArtifacts: true,
+          },
+        },
+        { homedir: "/Users/tester" },
+      );
+
+      const status = await resolveMemoryWikiStatus(config, {
+        appConfig: {
+          agents: {
+            list: [{ id: "main", default: true, workspace: workspaceDir }],
+          },
+        } as OpenClawConfig,
+        listPublicArtifacts: async () => [],
+        pathExists: async () => true,
+        resolveCommand: async () => null,
+      });
+
+      expect(status.bridgePublicArtifactCount).toBe(1);
+      expect(status.warnings.map((warning) => warning.code)).not.toContain(
+        "bridge-artifacts-missing",
+      );
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
   });
 
   it("counts source provenance from the vault", async () => {

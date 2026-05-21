@@ -226,6 +226,10 @@ export type CompileMemoryWikiResult = {
   updatedFiles: string[];
 };
 
+export type CompileMemoryWikiOptions = {
+  touchCacheArtifacts?: boolean;
+};
+
 export type RefreshMemoryWikiIndexesResult = {
   refreshed: boolean;
   reason: "auto-compile-disabled" | "no-import-changes" | "missing-indexes" | "import-changed";
@@ -909,6 +913,7 @@ async function writeAgentDigestArtifacts(params: {
   rootDir: string;
   pages: WikiPageSummary[];
   pageCounts: Record<WikiPageKind, number>;
+  touchCacheArtifacts?: boolean;
 }): Promise<string[]> {
   const updatedFiles: string[] = [];
   const agentDigestPath = path.join(params.rootDir, AGENT_DIGEST_PATH);
@@ -929,8 +934,13 @@ async function writeAgentDigestArtifacts(params: {
     [agentDigestPath, agentDigest],
     [claimsDigestPath, claimsDigest],
   ] as const) {
-    const existing = await fs.readFile(filePath, "utf8").catch(() => "");
+    const existing = await fs.readFile(filePath, "utf8").catch(() => undefined);
     if (existing === content) {
+      if (params.touchCacheArtifacts) {
+        const now = new Date();
+        await fs.utimes(filePath, now, now);
+        updatedFiles.push(filePath);
+      }
       continue;
     }
     await fs.writeFile(filePath, content, "utf8");
@@ -941,6 +951,7 @@ async function writeAgentDigestArtifacts(params: {
 
 export async function compileMemoryWikiVault(
   config: ResolvedMemoryWikiConfig,
+  options: CompileMemoryWikiOptions = {},
 ): Promise<CompileMemoryWikiResult> {
   await initializeMemoryWikiVault(config);
   const rootDir = config.vault.path;
@@ -959,6 +970,7 @@ export async function compileMemoryWikiVault(
     rootDir,
     pages,
     pageCounts: counts,
+    touchCacheArtifacts: options.touchCacheArtifacts,
   });
   updatedFiles.push(...digestUpdatedFiles);
 

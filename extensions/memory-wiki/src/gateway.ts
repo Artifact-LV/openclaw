@@ -202,7 +202,10 @@ export function registerMemoryWikiGatewayMethods(params: {
     async ({ respond }) => {
       try {
         const sync = await syncImportedSourcesIfNeeded(config, appConfig);
-        const compile = await compileMemoryWikiVault(config, { touchCacheArtifacts: true });
+        const compile = await compileMemoryWikiVault(config, {
+          touchCacheArtifacts: true,
+          sourceImport: { operation: "refresh", ...sync },
+        });
         respond(true, { sync, compile });
       } catch (error) {
         respondError(respond, error);

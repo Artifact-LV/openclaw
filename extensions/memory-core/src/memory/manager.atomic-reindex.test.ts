@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { runMemoryAtomicReindex } from "./manager-atomic-reindex.js";
+import {
+  cleanupStaleMemoryIndexTempFiles,
+  runMemoryAtomicReindex,
+} from "./manager-atomic-reindex.js";
 
 describe("memory manager atomic reindex", () => {
   let fixtureRoot = "";
@@ -56,6 +59,36 @@ describe("memory manager atomic reindex", () => {
 
     expect(readChunkMarker(indexPath)).toBe("after");
     await expect(fs.access(tempIndexPath)).rejects.toThrow();
+  });
+
+  it("removes only stale temp reindex files for the target database", async () => {
+    const nowMs = Date.parse("2026-05-14T18:00:00.000Z");
+    const staleDate = new Date(nowMs - 2 * 60 * 60 * 1000);
+    const freshDate = new Date(nowMs - 30 * 1000);
+    const staleTempPath = `${indexPath}.tmp-stale`;
+    const freshTempPath = `${indexPath}.tmp-fresh`;
+    const otherDbTempPath = path.join(path.dirname(indexPath), "other.sqlite.tmp-stale");
+
+    await fs.writeFile(staleTempPath, "stale", "utf8");
+    await fs.writeFile(`${staleTempPath}-wal`, "stale wal", "utf8");
+    await fs.writeFile(freshTempPath, "fresh", "utf8");
+    await fs.writeFile(otherDbTempPath, "other", "utf8");
+    await fs.utimes(staleTempPath, staleDate, staleDate);
+    await fs.utimes(`${staleTempPath}-wal`, staleDate, staleDate);
+    await fs.utimes(freshTempPath, freshDate, freshDate);
+    await fs.utimes(otherDbTempPath, staleDate, staleDate);
+
+    const result = await cleanupStaleMemoryIndexTempFiles({
+      targetPath: indexPath,
+      nowMs,
+      staleMs: 60 * 1000,
+    });
+
+    expect(result).toEqual({ removed: 1, failed: 0 });
+    await expect(fs.access(staleTempPath)).rejects.toThrow();
+    await expect(fs.access(`${staleTempPath}-wal`)).rejects.toThrow();
+    await expect(fs.access(freshTempPath)).resolves.toBeUndefined();
+    await expect(fs.access(otherDbTempPath)).resolves.toBeUndefined();
   });
 });
 

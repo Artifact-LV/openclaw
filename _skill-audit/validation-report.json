@@ -1,0 +1,73 @@
+{
+  "repo": "openclaw-src",
+  "validation_date": "2026-04-18T22:55:00.074053+00:00",
+  "total_skills": 9,
+  "passed": 9,
+  "flagged": 0,
+  "rejected": 0,
+  "results": [
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/openclaw-parallels-smoke",
+      "name": "openclaw-parallels-smoke",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/security-triage",
+      "name": "security-triage",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/openclaw-release-maintainer",
+      "name": "openclaw-release-maintainer",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/openclaw-pr-maintainer",
+      "name": "openclaw-pr-maintainer",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/openclaw-qa-testing",
+      "name": "openclaw-qa-testing",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/openclaw-test-heap-leaks",
+      "name": "openclaw-test-heap-leaks",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/openclaw-secret-scanning-maintainer",
+      "name": "openclaw-secret-scanning-maintainer",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/parallels-discord-roundtrip",
+      "name": "parallels-discord-roundtrip",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "skill_dir": "/home/chase/openclaw-src/.agents/skills/openclaw-ghsa-maintainer",
+      "name": "openclaw-ghsa-maintainer",
+      "status": "PASS",
+      "issues": [],
+      "warnings": []
+    }
+  ]
+}

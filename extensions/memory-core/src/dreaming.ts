@@ -506,6 +506,12 @@ export async function runShortTermDreamingPromotionIfTriggered(params: {
   let totalApplied = 0;
   let failedWorkspaces = 0;
   const pluginConfig = params.cfg ? resolveMemoryCorePluginConfig(params.cfg) : undefined;
+  const narrativeSubagent = workspaces.length === 1 ? params.subagent : undefined;
+  if (params.subagent && !narrativeSubagent) {
+    params.logger.info(
+      `memory-core: dreaming narrative generation skipped for managed multi-workspace run (workspaces=${workspaces.length}); promotion/report phases still run.`,
+    );
+  }
   for (const workspaceDir of workspaces) {
     try {
       const sweepNowMs = Date.now();
@@ -514,7 +520,7 @@ export async function runShortTermDreamingPromotionIfTriggered(params: {
         pluginConfig,
         cfg: params.cfg,
         logger: params.logger,
-        subagent: params.subagent,
+        subagent: narrativeSubagent,
         nowMs: sweepNowMs,
       });
 
@@ -587,14 +593,14 @@ export async function runShortTermDreamingPromotionIfTriggered(params: {
         storage: params.config.storage ?? { mode: "inline", separateReports: false },
       });
       // Generate dream diary narrative from promoted memories.
-      if (params.subagent && (candidates.length > 0 || applied.applied > 0)) {
+      if (narrativeSubagent && (candidates.length > 0 || applied.applied > 0)) {
         const data: NarrativePhaseData = {
           phase: "deep",
           snippets: candidates.map((c) => c.snippet).filter(Boolean),
           promotions: applied.appliedCandidates.map((c) => c.snippet).filter(Boolean),
         };
         await generateAndAppendDreamNarrative({
-          subagent: params.subagent,
+          subagent: narrativeSubagent,
           workspaceDir,
           data,
           nowMs: sweepNowMs,

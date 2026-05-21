@@ -35,6 +35,19 @@ type DreamingPluginApiTestDouble = {
   on: ReturnType<typeof vi.fn>;
 };
 
+function createMockNarrativeSubagent(response = "The archive hummed softly.") {
+  return {
+    run: vi.fn(async (_params: { sessionKey: string; message: string }) => ({
+      runId: "dream-run-1",
+    })),
+    waitForRun: vi.fn(async () => ({ status: "ok" })),
+    getSessionMessages: vi.fn(async () => ({
+      messages: [{ role: "assistant", content: response }],
+    })),
+    deleteSession: vi.fn(async () => {}),
+  };
+}
+
 function createLogger() {
   return {
     info: vi.fn(),
@@ -1525,6 +1538,94 @@ describe("short-term dreaming trigger", () => {
     );
     expect(logger.info).toHaveBeenCalledWith(
       "memory-core: dreaming promotion complete (workspaces=2, candidates=2, applied=2, failed=0).",
+    );
+  });
+
+  it("skips best-effort narratives during managed multi-workspace promotion", async () => {
+    const logger = createLogger();
+    const workspaceRoot = await createTempWorkspace("memory-dreaming-multi-narrative-");
+    const alphaWorkspace = path.join(workspaceRoot, "alpha");
+    const betaWorkspace = path.join(workspaceRoot, "beta");
+    const subagent = createMockNarrativeSubagent();
+
+    await writeDailyMemoryNote(alphaWorkspace, "2026-04-02", ["Alpha backup note."]);
+    await writeDailyMemoryNote(betaWorkspace, "2026-04-02", ["Beta router note."]);
+    await recordShortTermRecalls({
+      workspaceDir: alphaWorkspace,
+      query: "alpha backup",
+      results: [
+        {
+          path: "memory/2026-04-02.md",
+          startLine: 1,
+          endLine: 1,
+          score: 0.9,
+          snippet: "Alpha backup note.",
+          source: "memory",
+        },
+      ],
+    });
+    await recordShortTermRecalls({
+      workspaceDir: betaWorkspace,
+      query: "beta router",
+      results: [
+        {
+          path: "memory/2026-04-02.md",
+          startLine: 1,
+          endLine: 1,
+          score: 0.9,
+          snippet: "Beta router note.",
+          source: "memory",
+        },
+      ],
+    });
+
+    const result = await runShortTermDreamingPromotionIfTriggered({
+      cleanedBody: constants.DREAMING_SYSTEM_EVENT_TEXT,
+      trigger: "heartbeat",
+      workspaceDir: alphaWorkspace,
+      cfg: {
+        agents: {
+          defaults: {
+            memorySearch: {
+              enabled: true,
+            },
+          },
+          list: [
+            {
+              id: "alpha",
+              workspace: alphaWorkspace,
+            },
+            {
+              id: "beta",
+              workspace: betaWorkspace,
+            },
+          ],
+        },
+      } as OpenClawConfig,
+      config: {
+        enabled: true,
+        cron: constants.DEFAULT_DREAMING_CRON_EXPR,
+        limit: 10,
+        minScore: 0,
+        minRecallCount: 0,
+        minUniqueQueries: 0,
+        recencyHalfLifeDays: constants.DEFAULT_DREAMING_RECENCY_HALF_LIFE_DAYS,
+        verboseLogging: false,
+      },
+      logger,
+      subagent,
+    });
+
+    expect(result?.handled).toBe(true);
+    expect(subagent.run).not.toHaveBeenCalled();
+    expect(await fs.readFile(path.join(alphaWorkspace, "MEMORY.md"), "utf-8")).toContain(
+      "Alpha backup note.",
+    );
+    expect(await fs.readFile(path.join(betaWorkspace, "MEMORY.md"), "utf-8")).toContain(
+      "Beta router note.",
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "memory-core: dreaming narrative generation skipped for managed multi-workspace run (workspaces=2); promotion/report phases still run.",
     );
   });
 });

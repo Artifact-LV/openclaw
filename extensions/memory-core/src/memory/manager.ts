@@ -6,6 +6,7 @@ import {
   resolveAgentDir,
   resolveAgentWorkspaceDir,
   resolveMemorySearchConfig,
+  resolveUserPath,
   type OpenClawConfig,
   type ResolvedMemorySearchConfig,
 } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
@@ -30,6 +31,7 @@ import {
 } from "./embeddings.js";
 import { bm25RankToScore, buildFtsQuery, mergeHybridResults } from "./hybrid.js";
 import { awaitPendingManagerWork, startAsyncSearchSync } from "./manager-async-state.js";
+import { cleanupStaleMemoryIndexTempFiles } from "./manager-atomic-reindex.js";
 import { MEMORY_BATCH_FAILURE_LIMIT } from "./manager-batch-state.js";
 import {
   closeManagedCacheEntries,
@@ -166,6 +168,10 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     const purpose = params.purpose === "status" ? "status" : "default";
     const key = `${agentId}:${workspaceDir}:${JSON.stringify(settings)}:${purpose}`;
     const statusOnly = params.purpose === "status";
+    await MemoryIndexManager.cleanupStaleTempIndexes({
+      agentId,
+      targetPath: resolveUserPath(settings.store.path),
+    });
     return await getOrCreateManagedCacheEntry({
       cache: INDEX_CACHE,
       pending: INDEX_CACHE_PENDING,
@@ -181,6 +187,31 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
           purpose: params.purpose,
         }),
     });
+  }
+
+  private static async cleanupStaleTempIndexes(params: {
+    agentId: string;
+    targetPath: string;
+  }): Promise<void> {
+    try {
+      const result = await cleanupStaleMemoryIndexTempFiles({ targetPath: params.targetPath });
+      if (result.removed > 0) {
+        log.debug(
+          `memory index cleanup removed ${result.removed} stale temp index group${
+            result.removed === 1 ? "" : "s"
+          } for ${params.agentId}`,
+        );
+      }
+      if (result.failed > 0) {
+        log.warn(
+          `memory index cleanup could not inspect/remove ${result.failed} stale temp index path${
+            result.failed === 1 ? "" : "s"
+          } for ${params.agentId}`,
+        );
+      }
+    } catch (err) {
+      log.warn(`memory index stale temp cleanup failed for ${params.agentId}: ${String(err)}`);
+    }
   }
 
   private constructor(params: {
